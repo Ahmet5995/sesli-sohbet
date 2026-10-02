@@ -26,7 +26,7 @@ const send = (ws, m) => ws.readyState === 1 && ws.send(JSON.stringify(m));
 function roster() {
   const r = {};
   CHANNELS.forEach(c => (r[c] = []));
-  for (const [id, c] of clients) if (c.channel) r[c.channel].push({ id, name: c.name, role: c.role, tag: c.tag });
+  for (const [id, c] of clients) if (c.channel) r[c.channel].push({ id, name: c.name, role: c.role, tag: c.tag, muted: c.muted, deaf: c.deaf });
   return r;
 }
 function broadcastRoster() {
@@ -44,7 +44,7 @@ function leave(id) {
 const wss = new WebSocketServer({ server });
 wss.on('connection', ws => {
   const id = nextId++;
-  clients.set(id, { ws, name: 'Misafir', channel: null, role: 'user', tag: '' });
+  clients.set(id, { ws, name: 'Misafir', channel: null, role: 'user', tag: '', muted: false, deaf: false });
   send(ws, { type: 'hello', id, channels: CHANNELS, roster: roster() });
 
   ws.on('message', raw => {
@@ -61,6 +61,8 @@ wss.on('connection', ws => {
       send(ws, { type: 'joined', channel: m.channel, peers });
       send(ws, { type: 'history', channel: m.channel, messages: history[m.channel] });
       broadcastRoster();
+    } else if (m.type === 'state') {
+      me.muted = !!m.muted; me.deaf = !!m.deaf; broadcastRoster();
     } else if (m.type === 'chat') {
       if (!me.channel) return;
       const text = String(m.text || '').trim().slice(0, 300);
