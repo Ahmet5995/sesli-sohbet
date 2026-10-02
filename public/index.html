@@ -61,7 +61,7 @@ function connect() {
   ws.onmessage = async e => {
     const m = JSON.parse(e.data);
     if (m.type === 'hello') { myId = m.id; roster = m.roster; render(); }
-    else if (m.type === 'roster') { roster = m.roster; render(); }
+    else if (m.type === 'roster') { notify(m.roster); roster = m.roster; render(); }
     else if (m.type === 'joined') { for (const id of m.peers) await callPeer(id); }
     else if (m.type === 'peer-left') closePeer(m.id);
     else if (m.type === 'role') { myRole = m.role; render(); }
@@ -136,7 +136,7 @@ async function join(channel) {
     localStream.getAudioTracks()[0].enabled = !muted;
   }
   await ac.resume();
-  closeAll(); current = channel;
+  closeAll(); current = channel; prevIds = null;
   ws.send(JSON.stringify({ type: 'join', channel, name, key: $('key').value }));
   watch(localStream, 'me');
   $('leave').style.display = 'block';
@@ -144,12 +144,33 @@ async function join(channel) {
 }
 function leave() {
   ws.send(JSON.stringify({ type: 'leave' }));
-  closeAll(); current = null;
+  closeAll(); current = null; prevIds = null;
   if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
   $('leave').style.display = 'none';
   $('status').innerHTML = 'Bir ses kanalına tıklayarak katıl.';
 }
 
+let prevIds = null;
+function beep(up) {
+  const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime;
+  o.type = 'sine';
+  o.frequency.setValueAtTime(up ? 520 : 440, t);
+  o.frequency.setValueAtTime(up ? 780 : 300, t + 0.09);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.15, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+  o.connect(g).connect(ac.destination);
+  o.start(t); o.stop(t + 0.25);
+}
+function notify(newRoster) {
+  if (!current) return;
+  const ids = (newRoster[current] || []).map(u => u.id);
+  if (prevIds && !deafened) {
+    if (ids.some(id => id !== myId && !prevIds.includes(id))) beep(true);
+    if (prevIds.some(id => id !== myId && !ids.includes(id))) beep(false);
+  }
+  prevIds = ids;
+}
 function render() {
   const box = $('channels'); box.innerHTML = '';
   for (const [ch, list] of Object.entries(roster)) {
