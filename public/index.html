@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sesli Sohbet</title>
+<style>
+:root{--bg:#1f2933;--side:#17202a;--card:#2b3744;--text:#eef2f6;--mute:#9aa7b5;--acc:#f2b84b;--bad:#e5645a}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{display:flex;background:var(--bg);color:var(--text);font:15px/1.4 system-ui,sans-serif}
+aside{width:260px;background:var(--side);display:flex;flex-direction:column;flex-shrink:0}
+h1{font-size:17px;margin:0;padding:18px 16px}
+#channels{flex:1;overflow:auto;padding:0 8px}
+.ch{margin-bottom:6px}
+.ch>button{width:100%;text-align:left;background:none;border:0;color:var(--mute);padding:8px;border-radius:8px;font:inherit;cursor:pointer}
+.ch>button:hover{background:var(--card);color:var(--text)}
+.ch.on>button{color:var(--text);font-weight:600}
+.m{display:flex;align-items:center;gap:8px;padding:4px 8px 4px 20px;color:var(--text)}
+.av{width:26px;height:26px;border-radius:50%;background:var(--card);display:grid;place-items:center;font-size:12px;font-weight:600;outline:2px solid transparent;transition:outline-color .1s}
+.m.speak .av{outline-color:var(--acc)}
+.panel{padding:12px;background:#111922;display:flex;flex-direction:column;gap:8px}
+.panel input{background:var(--card);border:1px solid transparent;color:var(--text);padding:8px;border-radius:8px;font:inherit}
+.row{display:flex;gap:6px}
+.m{flex-wrap:wrap}.act{font:11px system-ui,sans-serif;padding:2px 6px;margin-left:4px;border:0;border-radius:6px;background:var(--card);color:var(--text);cursor:pointer}.act:hover{background:var(--bad)}
+.row button{flex:1;padding:8px;border:0;border-radius:8px;background:var(--card);color:var(--text);font:inherit;cursor:pointer}
+.row button.off{background:var(--bad)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--acc)}
+main{flex:1;display:grid;place-items:center;text-align:center;padding:24px}
+#status{font-size:20px;max-width:30ch}
+#status small{display:block;margin-top:8px;font-size:14px;color:var(--mute)}
+@media(max-width:640px){body{flex-direction:column-reverse}aside{width:100%;height:60%}}
+</style>
+</head>
+<body>
+<aside>
+  <h1>Sesli Sohbet</h1>
+  <div id="channels"></div>
+  <div class="panel">
+    <input id="name" placeholder="Kullanıcı adın" maxlength="20">
+    <input id="key" type="password" placeholder="Yönetici şifresi (varsa)">
+    <div class="row">
+      <button id="mute">Mikrofonu kapat</button>
+      <button id="deaf">Sağırlaştır</button>
+    </div>
+    <button id="leave" style="padding:8px;border:0;border-radius:8px;background:var(--bad);color:#fff;font:inherit;cursor:pointer;display:none">Kanaldan ayrıl</button>
+  </div>
+</aside>
+<main><div id="status">Bir ses kanalına tıklayarak katıl.<small>Mikrofon izni istenecek.</small></div></main>
+
+<script>
+const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+let ws, myId, current = null, roster = {}, localStream = null;
+const peers = new Map(); // id -> { pc, audio }
+let muted = false, deafened = false, forced = false, myRole = 'user';
+const $ = id => document.getElementById(id);
+const nameEl = $('name');
+try { nameEl.value = localStorage.getItem('ad') || ''; } catch {}
+
+function connect() {
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
+  ws.onmessage = async e => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'hello') { myId = m.id; roster = m.roster; render(); }
+    else if (m.type === 'roster') { roster = m.roster; render(); }
+    else if (m.type === 'joined') { for (const id of m.peers) await callPeer(id); }
+    else if (m.type === 'peer-left') closePeer(m.id);
+    else if (m.type === 'role') { myRole = m.role; render(); }
+    else if (m.type === 'notice') { $('status').innerHTML = m.text; }
+    else if (m.type === 'kicked') { leave(); $('status').innerHTML = 'Yönetici seni kanaldan çıkardı.'; }
+    else if (m.type === 'force-mute') setMute(m.on, m.on);
+    else if (m.type === 'signal') await onSignal(m.from, m.data);
+  };
+  ws.onclose = () => { $('status').innerHTML = 'Bağlantı koptu. Yeniden bağlanıyor…'; closeAll(); setTimeout(connect, 2000); };
+}
+const sig = (to, data) => ws.send(JSON.stringify({ type: 'signal', to, data }));
+
+function makePeer(id) {
+  const pc = new RTCPeerConnection(ICE);
+  const audio = new Audio(); audio.autoplay = true; audio.muted = deafened;
+  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  pc.onicecandidate = e => e.candidate && sig(id, { candidate: e.candidate });
+  pc.ontrack = e => { audio.srcObject = e.streams[0]; watch(e.streams[0], id); };
+  peers.set(id, { pc, audio });
+  return pc;
+}
+async function callPeer(id) {
+  const pc = makePeer(id);
+  await pc.setLocalDescription(await pc.createOffer());
+  sig(id, { sdp: pc.localDescription });
+}
+async function onSignal(from, d) {
+  if (!localStream) return;
+  let p = peers.get(from);
+  if (d.sdp) {
+    if (d.sdp.type === 'offer') {
+      const pc = p ? p.pc : makePeer(from);
+      await pc.setRemoteDescription(d.sdp);
+      await pc.setLocalDescription(await pc.createAnswer());
+      sig(from, { sdp: pc.localDescription });
+    } else if (p) await p.pc.setRemoteDescription(d.sdp);
+  } else if (d.candidate && p) { try { await p.pc.addIceCandidate(d.candidate); } catch {} }
+}
+function closePeer(id) {
+  const p = peers.get(id); if (!p) return;
+  p.pc.close(); p.audio.srcObject = null; peers.delete(id);
+}
+function closeAll() { [...peers.keys()].forEach(closePeer); }
+
+// Konuşma algılama: ses seviyesi eşiği geçince halka yanar
+const ac = new (window.AudioContext || window.webkitAudioContext)();
+function watch(stream, id) {
+  const an = ac.createAnalyser(); an.fftSize = 512;
+  ac.createMediaStreamSource(stream).connect(an);
+  const buf = new Uint8Array(an.fftSize);
+  const tick = () => {
+    if (id !== 'me' && !peers.has(id)) return;
+    if (id === 'me' && !localStream) return;
+    an.getByteTimeDomainData(buf);
+    let s = 0; for (const v of buf) s += (v - 128) ** 2;
+    const on = Math.sqrt(s / buf.length) > 6 && !(id === 'me' && muted);
+    const el = document.querySelector(`[data-id="${id === 'me' ? myId : id}"]`);
+    if (el) el.classList.toggle('speak', on);
+    requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+async function join(channel) {
+  const name = nameEl.value.trim();
+  if (!name) { nameEl.focus(); $('status').innerHTML = 'Önce bir kullanıcı adı yaz.'; return; }
+  if (current === channel) return;
+  try { localStorage.setItem('ad', name); } catch {}
+  if (!localStream) {
+    try { localStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+    catch { $('status').innerHTML = 'Mikrofona erişilemedi.<small>Tarayıcıdan mikrofon iznini aç. Adres https veya localhost olmalı.</small>'; return; }
+    localStream.getAudioTracks()[0].enabled = !muted;
+  }
+  await ac.resume();
+  closeAll(); current = channel;
+  ws.send(JSON.stringify({ type: 'join', channel, name, key: $('key').value }));
+  watch(localStream, 'me');
+  $('leave').style.display = 'block';
+  $('status').innerHTML = `#${channel}<small>Bağlısın. Konuştuğunda adının yanındaki halka yanar.</small>`;
+}
+function leave() {
+  ws.send(JSON.stringify({ type: 'leave' }));
+  closeAll(); current = null;
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  $('leave').style.display = 'none';
+  $('status').innerHTML = 'Bir ses kanalına tıklayarak katıl.';
+}
+
+function render() {
+  const box = $('channels'); box.innerHTML = '';
+  for (const [ch, list] of Object.entries(roster)) {
+    const d = document.createElement('div');
+    d.className = 'ch' + (ch === current ? ' on' : '');
+    const b = document.createElement('button'); b.textContent = '🔊 ' + ch; b.onclick = () => join(ch);
+    d.appendChild(b);
+    for (const u of list) {
+      const r = document.createElement('div'); r.className = 'm'; r.dataset.id = u.id;
+      const a = document.createElement('span'); a.className = 'av'; a.textContent = u.name[0].toUpperCase();
+      const n = document.createElement('span'); n.textContent = u.name + (u.id === myId ? ' (sen)' : '');
+      n.textContent += u.role === 'admin' ? ' ★' : u.role === 'mod' ? ' ◆' : '';
+      r.append(a, n);
+      const rk = { user: 0, mod: 1, admin: 2 };
+      if (u.id !== myId && ch === current && rk[myRole] >= 1 && rk[myRole] > rk[u.role]) {
+        const act = (txt, action) => {
+          const x = document.createElement('button'); x.textContent = txt; x.className = 'act';
+          x.onclick = () => ws.send(JSON.stringify({ type: 'mod', action, target: u.id }));
+          r.appendChild(x);
+        };
+        act('Sustur', 'mute'); act('Aç', 'unmute'); act('At', 'kick');
+        if (myRole === 'admin') act(u.role === 'mod' ? 'Modu al' : 'Mod yap', u.role === 'mod' ? 'demote' : 'promote');
+      }
+      d.appendChild(r);
+    }
+    box.appendChild(d);
+  }
+}
+
+function setMute(on, force) {
+  muted = on; forced = !!force && on;
+  if (localStream) localStream.getAudioTracks()[0].enabled = !muted;
+  const b = $('mute');
+  b.textContent = forced ? 'Yönetici susturdu' : muted ? 'Mikrofonu aç' : 'Mikrofonu kapat';
+  b.classList.toggle('off', muted);
+}
+$('mute').onclick = () => { if (!forced) setMute(!muted, false); };
+$('deaf').onclick = e => {
+  deafened = !deafened;
+  peers.forEach(p => (p.audio.muted = deafened));
+  e.target.textContent = deafened ? 'Sesi aç' : 'Sağırlaştır';
+  e.target.classList.toggle('off', deafened);
+};
+$('leave').onclick = leave;
+connect();
+</script>
+</body>
+</html>
