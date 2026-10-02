@@ -8,6 +8,8 @@ const { WebSocketServer } = require('ws');
 const CHANNELS = ['Genel', 'Oyun', 'Müzik', 'Sohbet'];
 const clients = new Map(); // id -> { ws, name, channel }
 let nextId = 1;
+const history = {};
+CHANNELS.forEach(c => (history[c] = []));
 const ADMIN_KEY = process.env.ADMIN_KEY || 'admin123';
 const RANK = { user: 0, mod: 1, admin: 2 };
 
@@ -24,7 +26,7 @@ const send = (ws, m) => ws.readyState === 1 && ws.send(JSON.stringify(m));
 function roster() {
   const r = {};
   CHANNELS.forEach(c => (r[c] = []));
-  for (const [id, c] of clients) if (c.channel) r[c.channel].push({ id, name: c.name, role: c.role });
+  for (const [id, c] of clients) if (c.channel) r[c.channel].push({ id, name: c.name, role: c.role, tag: c.tag });
   return r;
 }
 function broadcastRoster() {
@@ -42,7 +44,7 @@ function leave(id) {
 const wss = new WebSocketServer({ server });
 wss.on('connection', ws => {
   const id = nextId++;
-  clients.set(id, { ws, name: 'Misafir', channel: null, role: 'user' });
+  clients.set(id, { ws, name: 'Misafir', channel: null, role: 'user', tag: '' });
   send(ws, { type: 'hello', id, channels: CHANNELS, roster: roster() });
 
   ws.on('message', raw => {
@@ -57,10 +59,28 @@ wss.on('connection', ws => {
       const peers = [...clients].filter(([, c]) => c.channel === m.channel).map(([pid]) => pid);
       me.channel = m.channel;
       send(ws, { type: 'joined', channel: m.channel, peers });
+      send(ws, { type: 'history', channel: m.channel, messages: history[m.channel] });
       broadcastRoster();
+    } else if (m.type === 'chat') {
+      if (!me.channel) return;
+      const text = String(m.text || '').trim().slice(0, 300);
+      const now = Date.now();
+      if (!text || now - (me.lastChat || 0) < 700) return;
+      me.lastChat = now;
+      const msg = { name: me.name, role: me.role, tag: me.tag, text, time: now };
+      const h = history[me.channel];
+      h.push(msg); if (h.length > 50) h.shift();
+      for (const c of clients.values()) if (c.channel === me.channel) send(c.ws, { type: 'chat', msg });
     } else if (m.type === 'mod') {
       const t = clients.get(m.target);
-      if (!t || t === me) return;
+      if (!t) return;
+      if (m.action === 'tag') {
+        if (me.role !== 'admin') return;
+        t.tag = String(m.tag || '').replace(/[<>]/g, '').trim().slice(0, 12);
+        broadcastRoster();
+        return;
+      }
+      if (t === me) return;
       const mine = RANK[me.role];
       if (m.action === 'promote' || m.action === 'demote') {
         if (me.role !== 'admin' || t.role === 'admin') return;
