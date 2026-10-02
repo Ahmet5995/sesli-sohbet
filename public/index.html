@@ -117,7 +117,7 @@ function watch(stream, id) {
     if (id === 'me' && !localStream) return;
     an.getByteTimeDomainData(buf);
     let s = 0; for (const v of buf) s += (v - 128) ** 2;
-    const on = Math.sqrt(s / buf.length) > 6 && !(id === 'me' && muted);
+    const on = Math.sqrt(s / buf.length) > 15 && !(id === 'me' && muted);
     const el = document.querySelector(`[data-id="${id === 'me' ? myId : id}"]`);
     if (el) el.classList.toggle('speak', on);
     requestAnimationFrame(tick);
