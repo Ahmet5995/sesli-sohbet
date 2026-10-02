@@ -157,6 +157,7 @@ async function join(channel) {
   await ac.resume();
   closeAll(); current = channel; prevIds = null;
   ws.send(JSON.stringify({ type: 'join', channel, name, key: $('key').value }));
+  sendState();
   watch(localStream, 'me');
   $('leave').style.display = 'block';
   $('status').innerHTML = `#${channel}<small>Bağlısın. Konuştuğunda adının yanındaki halka yanar.</small>`;
@@ -190,6 +191,9 @@ function notify(newRoster) {
   }
   prevIds = ids;
 }
+function sendState() {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'state', muted, deaf: deafened }));
+}
 function addMsg(g) {
   const box = $('msgs'), near = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
   const d = document.createElement('div'); d.className = 'msg';
@@ -220,6 +224,7 @@ function render() {
       const a = document.createElement('span'); a.className = 'av'; a.textContent = u.name[0].toUpperCase();
       const n = document.createElement('span'); n.textContent = u.name + (u.id === myId ? ' (sen)' : '');
       n.textContent += u.role === 'admin' ? ' ★' : u.role === 'mod' ? ' ◆' : '';
+      n.textContent += (u.muted ? ' 🔇' : '') + (u.deaf ? ' 🙉' : '');
       if (u.tag) { const tg = document.createElement('span'); tg.className = 'tag'; tg.textContent = '[' + u.tag + ']'; r.append(a, tg, n); } else r.append(a, n);
       const rk = { user: 0, mod: 1, admin: 2 };
       if (u.id !== myId && ch === current && rk[myRole] >= 1 && rk[myRole] > rk[u.role]) {
@@ -251,6 +256,7 @@ function setMute(on, force) {
   const b = $('mute');
   b.textContent = forced ? 'Yönetici susturdu' : muted ? 'Mikrofonu aç' : 'Mikrofonu kapat';
   b.classList.toggle('off', muted);
+  sendState();
 }
 $('mute').onclick = () => { if (!forced) setMute(!muted, false); };
 $('deaf').onclick = e => {
@@ -258,6 +264,7 @@ $('deaf').onclick = e => {
   peers.forEach(p => (p.audio.muted = deafened));
   e.target.textContent = deafened ? 'Sesi aç' : 'Sağırlaştır';
   e.target.classList.toggle('off', deafened);
+  sendState();
 };
 $('leave').onclick = leave;
 $('sendbtn').onclick = sendMsg;
