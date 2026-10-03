@@ -202,7 +202,7 @@ function roster() {
   const r = {};
   CHANNELS.forEach(c => (r[c] = []));
   for (const [id, c] of clients) {
-    if (c.channel && c.uid && r[c.channel]) r[c.channel].push({ id, name: c.name, tag: c.tag, muted: c.muted, deaf: c.deaf, ...look(c.uid) });
+    if (c.channel && c.uid && r[c.channel]) r[c.channel].push({ id, uid: c.uid, name: c.name, tag: c.tag, muted: c.muted, deaf: c.deaf, ...look(c.uid) });
   }
   return r;
 }
@@ -354,8 +354,9 @@ async function handle(id, me, m) {
     await db.query('UPDATE channels SET name = $1 WHERE id = $2', [name, m.channel]);
     broadcastChannels();
   } else if (m.type === 'mod') {
-    const t = clients.get(m.target);
+    const t = m.uid != null ? [...clients.values()].find(c => c.uid === Number(m.uid)) : clients.get(m.target);
     if (!t || !t.uid) return;
+    const tid = [...clients].find(([, c]) => c === t)[0];
     const higher = topOf(me.uid) > topOf(t.uid);
     if (m.action === 'tag') {
       if (!can(me.uid, 'tag') || (t !== me && !higher)) return;
@@ -371,11 +372,29 @@ async function handle(id, me, m) {
     }
     if (t.channel && t.channel === me.channel) {
       if (m.action === 'kick' && can(me.uid, 'kick')) {
-        leave(m.target); send(t.ws, { type: 'kicked' }); broadcastRoster();
+        leave(tid); send(t.ws, { type: 'kicked' }); broadcastRoster();
       } else if ((m.action === 'mute' || m.action === 'unmute') && can(me.uid, 'mute')) {
         send(t.ws, { type: 'force-mute', on: m.action === 'mute' });
       }
     }
+  } else if (m.type === 'taguid') {
+    // Etiket: çevrim dışı kullanıcılara da verilebilir
+    const uid = Number(m.uid), u = users.get(uid);
+    if (!u || !can(me.uid, 'tag') || (uid !== me.uid && topOf(me.uid) <= topOf(uid))) return;
+    const tag = clean(m.tag, 12);
+    await db.query('UPDATE users SET tag = $1 WHERE id = $2', [tag, uid]);
+    u.tag = tag;
+    for (const c of clients.values()) if (c.uid === uid) c.tag = tag;
+    broadcastRoster();
+  } else if (m.type === 'kickuid') {
+    // Üyeler listesinden: kişiyi bulunduğu ses kanalından at (hesabı yasaklamaz, tekrar girebilir)
+    if (!can(me.uid, 'kick')) return;
+    const uid = Number(m.uid);
+    if (!users.has(uid) || uid === me.uid || topOf(me.uid) <= topOf(uid)) return;
+    for (const [cid, c] of clients) {
+      if (c.uid === uid && c.channel) { leave(cid); send(c.ws, { type: 'kicked' }); }
+    }
+    broadcastRoster();
   } else if (m.type === 'rolesave') {
     if (!can(me.uid, 'roles')) return;
     const myTop = topOf(me.uid), mine = permsOf(me.uid);
