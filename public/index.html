@@ -50,6 +50,10 @@ h1 img{width:44px;height:44px;display:block}
 .perms label,#asbox label{display:flex;gap:6px;align-items:center}
 .ov2 input[type=checkbox]{accent-color:var(--acc)}
 .ov2 .row button{padding:8px;border:0;border-radius:8px;background:#333;color:var(--text);font:inherit;cursor:pointer}
+#cmenu{position:fixed;display:none;flex-direction:column;background:#161616;border:1px solid #2a2118;border-radius:8px;padding:4px;z-index:20;min-width:200px;box-shadow:0 8px 24px rgba(0,0,0,.6)}
+#cmenu button{background:none;border:0;color:var(--text);text-align:left;padding:8px 10px;border-radius:6px;font:inherit;cursor:pointer}
+#cmenu button:hover{background:var(--card)}
+#cmenu button.danger{color:var(--bad)}
 .panel{padding:12px;background:#0a0a0a;display:flex;flex-direction:column;gap:8px}
 .panel input{background:var(--card);border:1px solid transparent;color:var(--text);padding:8px;border-radius:8px;font:inherit}
 .row{display:flex;gap:6px}
@@ -111,6 +115,7 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
 <div id="chat"><div id="msgs"></div><div class="send"><input id="msg" placeholder="Mesaj yaz…" maxlength="300" autocomplete="off"><button id="sendbtn">Gönder</button></div></div></main>
 <div id="mem"></div>
 
+<div id="cmenu"></div>
 <div id="rm" class="ov2"><div class="bx"><h2>Roller</h2><div id="rmbox"></div><button id="rmclose" class="act" style="padding:8px">Kapat</button></div></div>
 <div id="as" class="ov2"><div class="bx"><h2 id="astitle"></h2><div id="asbox" style="display:flex;flex-direction:column;gap:8px"></div><div class="row"><button id="asok">Kaydet</button><button id="ascancel">Vazgeç</button></div></div></div>
 <div id="pwm"><div class="box">
@@ -372,34 +377,7 @@ function render() {
       if (u.color) n.style.color = u.color;
       n.textContent += (u.muted ? ' 🔇' : '') + (u.deaf ? ' 🙉' : '');
       if (u.tag) { const tg = document.createElement('span'); tg.className = 'tag'; tg.textContent = '[' + u.tag + ']'; r.append(a, tg, n); } else r.append(a, n);
-      const rk = { user: 0, mod: 1, admin: 2 };
-      if (u.id !== myId && ch === current && myTop > u.top && (can('mute') || can('kick'))) {
-        const act = (txt, action) => {
-          const x = document.createElement('button'); x.textContent = txt; x.className = 'act';
-          x.onclick = () => ws.send(JSON.stringify({ type: 'mod', action, target: u.id }));
-          r.appendChild(x);
-        };
-        if (can('mute')) { act('Sustur', 'mute'); act('Aç', 'unmute'); }
-        if (can('kick')) act('At', 'kick');
-      }
-      if (can('tag') && ch === current && (u.id === myId || myTop > u.top)) {
-        const x = document.createElement('button'); x.textContent = 'Etiket'; x.className = 'act';
-        x.onclick = () => {
-          const t = prompt('Etiket yaz (en fazla 12 karakter, silmek için boş bırak):', u.tag || '');
-          if (t !== null) ws.send(JSON.stringify({ type: 'mod', action: 'tag', target: u.id, tag: t }));
-        };
-        r.appendChild(x);
-      }
-      if (can('move') && u.id !== myId && myTop > u.top) {
-        const mv = document.createElement('button'); mv.className = 'act'; mv.textContent = 'Taşı'; mv.title = 'Başka kanala taşı (sürükleyip de bırakabilirsin)';
-        mv.onclick = () => {
-          const ids = Object.keys(roster);
-          const list = ids.map((id, i) => (i + 1) + ') ' + (chNames[id] || id)).join('\n');
-          const n = parseInt(prompt('Hangi kanala taşınsın? Numara yaz:\n' + list), 10);
-          if (ids[n - 1]) ws.send(JSON.stringify({ type: 'mod', action: 'move', target: u.id, channel: ids[n - 1] }));
-        };
-        r.appendChild(mv);
-      }
+      attachMenu(r, { ...u, channel: ch });
       if (u.id !== myId && ch === current) {
         const s0 = getVol(u.name);
         const vr = document.createElement('div'); vr.className = 'volrow';
@@ -483,6 +461,7 @@ addEventListener('keyup', e => { if (e.code === pttKey && pttDown) { pttDown = f
 addEventListener('blur', () => { if (pttDown) { pttDown = false; applyMic(); } });
 function renderMembers() {
   const box = $('mem'); box.innerHTML = '';
+  if (myTop > 0) { const hint = document.createElement('div'); hint.className = 'mh'; hint.style.textTransform = 'none'; hint.style.letterSpacing = '0'; hint.textContent = 'İpucu: yönetmek için kişiye sağ tıkla'; box.appendChild(hint); }
   const sorted = [...members].sort((a, b) => b.top - a.top || a.name.localeCompare(b.name, 'tr'));
   const sec = (title, list, on) => {
     if (!list.length) return;
@@ -498,18 +477,7 @@ function renderMembers() {
       if (on && u.channel) { const c = document.createElement('small'); c.textContent = '🔊 ' + (chNames[u.channel] || u.channel); wrap.appendChild(c); }
       const dot = document.createElement('i'); dot.className = 'dot' + (on ? ' on' : '');
       row.append(av, wrap);
-      if (myTop > u.top && u.name !== myName) {
-        const mk = (txt, title, fn) => { const x = document.createElement('button'); x.className = 'act'; x.textContent = txt; x.title = title; x.onclick = fn; row.appendChild(x); };
-        if (u.banned) can('ban') && mk('✅', 'Yasağı kaldır', () => ws.send(JSON.stringify({ type: 'unban', uid: u.uid })));
-        else {
-          can('resetpw') && mk('🔑', 'Şifreyi sıfırla', () => { if (confirm(u.name + ' için yeni geçici şifre oluşturulsun mu?')) ws.send(JSON.stringify({ type: 'resetpw', uid: u.uid })); });
-          can('ban') && mk('⛔', 'Yasakla', () => { if (confirm(u.name + ' yasaklansın mı? Hesabına girişi engellenir.')) ws.send(JSON.stringify({ type: 'ban', uid: u.uid })); });
-        }
-      }
-      if (can('roles') && (u.name === myName || myTop > u.top)) {
-        const x = document.createElement('button'); x.className = 'act'; x.textContent = '🎭'; x.title = 'Rolleri düzenle';
-        x.onclick = () => openAssign(u); row.appendChild(x);
-      }
+      attachMenu(row, u);
       row.appendChild(dot); box.appendChild(row);
     }
   };
@@ -517,6 +485,56 @@ function renderMembers() {
   sec('Çevrim dışı', sorted.filter(u => !u.online && !u.banned), false);
   sec('Yasaklı', sorted.filter(u => u.banned), false);
 }
+function moveDialog(u) {
+  const ids = Object.keys(roster);
+  const list = ids.map((id, i) => (i + 1) + ') ' + (chNames[id] || id)).join('\n');
+  const n = parseInt(prompt('Hangi kanala taşınsın? Numara yaz:\n' + list), 10);
+  if (ids[n - 1]) ws.send(JSON.stringify({ type: 'mod', action: 'move', uid: u.uid, channel: ids[n - 1] }));
+}
+// Sağ tık (yönetici) menüsü: yetkiye ve rol sırasına göre öğeler çıkar
+function userMenu(u) {
+  const items = [], self = u.name === myName, above = myTop > u.top, send = o => ws.send(JSON.stringify(o));
+  if (can('roles') && (self || above)) items.push(['🎭 Rolleri düzenle', () => openAssign(u)]);
+  if (can('tag') && (self || above)) items.push(['🏷 Etiket ver', () => { const t = prompt('Etiket (en fazla 12 karakter, silmek için boş bırak):', u.tag || ''); if (t !== null) send({ type: 'taguid', uid: u.uid, tag: t }); }]);
+  if (!self && above) {
+    if (can('mute') && u.channel && u.channel === current) {
+      items.push(['🔇 Sustur', () => send({ type: 'mod', action: 'mute', uid: u.uid })]);
+      items.push(['🔊 Susturmayı kaldır', () => send({ type: 'mod', action: 'unmute', uid: u.uid })]);
+    }
+    if (can('move') && u.channel) items.push(['➡ Başka kanala taşı…', () => moveDialog(u)]);
+    if (can('kick') && u.channel) items.push(['🚪 Kanaldan at', () => { if (confirm(u.name + ' kanaldan atılsın mı?')) send({ type: 'kickuid', uid: u.uid }); }]);
+    if (can('resetpw')) items.push(['🔑 Şifreyi sıfırla', () => { if (confirm(u.name + ' için yeni geçici şifre oluşturulsun mu?')) send({ type: 'resetpw', uid: u.uid }); }]);
+    if (can('ban')) {
+      if (u.banned) items.push(['✅ Yasağı kaldır', () => send({ type: 'unban', uid: u.uid })]);
+      else items.push(['⛔ Yasakla', () => { if (confirm(u.name + ' yasaklansın mı? Hesabına girişi engellenir.')) send({ type: 'ban', uid: u.uid }); }, true]);
+    }
+  }
+  return items;
+}
+function showMenu(x, y, items) {
+  const m = $('cmenu'); m.innerHTML = '';
+  for (const [label, fn, danger] of items) {
+    const b = document.createElement('button'); b.textContent = label; if (danger) b.className = 'danger';
+    b.onclick = () => { hideMenu(); fn(); }; m.appendChild(b);
+  }
+  m.style.display = 'flex';
+  m.style.left = Math.max(4, Math.min(x, innerWidth - m.offsetWidth - 8)) + 'px';
+  m.style.top = Math.max(4, Math.min(y, innerHeight - m.offsetHeight - 8)) + 'px';
+}
+function hideMenu() { $('cmenu').style.display = 'none'; }
+function attachMenu(el, u) {
+  if (!userMenu(u).length) return;
+  el.oncontextmenu = e => { const it = userMenu(u); if (!it.length) return; e.preventDefault(); showMenu(e.clientX, e.clientY, it); };
+  if (matchMedia('(hover: none)').matches) {
+    const b = document.createElement('button'); b.className = 'act'; b.textContent = '⋮'; b.title = 'Yönetim menüsü';
+    b.onclick = e => { e.stopPropagation(); const r = b.getBoundingClientRect(); showMenu(r.left, r.bottom, userMenu(u)); };
+    el.appendChild(b);
+  }
+}
+addEventListener('click', hideMenu);
+addEventListener('scroll', hideMenu, true);
+addEventListener('keydown', e => { if (e.key === 'Escape') hideMenu(); });
+addEventListener('contextmenu', e => { if (!e.target.closest('.m, .mr')) hideMenu(); });
 const PERM_LABELS = { admin: 'Yönetici (tüm yetkiler)', kick: 'Kanaldan atma', mute: 'Susturma', move: 'Kişi taşıma', delmsg: 'Mesaj silme', ban: 'Yasaklama', resetpw: 'Şifre sıfırlama', tag: 'Etiket verme', channels: 'Kanal yönetimi', roles: 'Rol yönetimi' };
 function renderRoleMgr() {
   const box = $('rmbox'); box.innerHTML = '';
@@ -554,6 +572,7 @@ $('rmclose').onclick = () => { $('rm').style.display = 'none'; };
 let assignUid = null;
 function openAssign(u) {
   assignUid = u.uid; $('astitle').textContent = u.name + ' — roller';
+  u = members.find(x => x.uid === u.uid) || u;
   const box = $('asbox'); box.innerHTML = '';
   for (const r of rolesList) {
     const lab = document.createElement('label'), cb = document.createElement('input');
