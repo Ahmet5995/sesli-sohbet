@@ -40,6 +40,16 @@ h1 img{width:44px;height:44px;display:block}
 .set label{display:flex;align-items:center;gap:8px}
 .panel input[type=range]{padding:0;width:100%;accent-color:var(--acc);background:none}
 .panel input[type=checkbox]{width:auto;padding:0;accent-color:var(--acc)}
+.ov2{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;place-items:center;z-index:11;padding:16px}
+.ov2 .bx{background:#141414;border:1px solid #2a2118;border-radius:12px;padding:16px;width:100%;max-width:560px;max-height:85vh;overflow:auto;display:flex;flex-direction:column;gap:12px}
+.ov2 h2{margin:0;color:var(--acc)}
+.rcard{background:var(--card);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.rcard input[type=text]{background:#111;border:1px solid #333;color:var(--text);padding:8px;border-radius:8px;font:inherit}
+.rcard input[type=color]{width:44px;height:36px;border:0;background:none;padding:0}
+.perms{display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:13px}
+.perms label,#asbox label{display:flex;gap:6px;align-items:center}
+.ov2 input[type=checkbox]{accent-color:var(--acc)}
+.ov2 .row button{padding:8px;border:0;border-radius:8px;background:#333;color:var(--text);font:inherit;cursor:pointer}
 .panel{padding:12px;background:#0a0a0a;display:flex;flex-direction:column;gap:8px}
 .panel input{background:var(--card);border:1px solid transparent;color:var(--text);padding:8px;border-radius:8px;font:inherit}
 .row{display:flex;gap:6px}
@@ -83,6 +93,7 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
     <div id="me" style="font-weight:600"></div>
     <button id="logout" class="act" style="padding:6px">Çıkış yap</button>
     <button id="pwbtn" class="act" style="padding:6px">Şifre değiştir</button>
+    <button id="rmbtn" class="act" style="padding:6px;display:none">Roller</button>
     <details><summary>Ses ayarları</summary><div class="set">
       <label><input type="checkbox" id="pttOn"> Bas-konuş</label>
       <button id="pttKey" class="act" style="padding:6px"></button>
@@ -100,6 +111,8 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
 <div id="chat"><div id="msgs"></div><div class="send"><input id="msg" placeholder="Mesaj yaz…" maxlength="300" autocomplete="off"><button id="sendbtn">Gönder</button></div></div></main>
 <div id="mem"></div>
 
+<div id="rm" class="ov2"><div class="bx"><h2>Roller</h2><div id="rmbox"></div><button id="rmclose" class="act" style="padding:8px">Kapat</button></div></div>
+<div id="as" class="ov2"><div class="bx"><h2 id="astitle"></h2><div id="asbox" style="display:flex;flex-direction:column;gap:8px"></div><div class="row"><button id="asok">Kaydet</button><button id="ascancel">Vazgeç</button></div></div></div>
 <div id="pwm"><div class="box">
   <h2>Şifre değiştir</h2>
   <input id="po" type="password" placeholder="Mevcut şifre" autocomplete="current-password">
@@ -121,6 +134,8 @@ const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 let ws, myId, current = null, roster = {}, localStream = null;
 const peers = new Map(); // id -> { pc, audio }
 let muted = false, deafened = false, forced = false, myRole = 'user';
+let myPerms = new Set(), myTop = 0, rolesList = [];
+const can = p => myPerms.has(p);
 const $ = id => document.getElementById(id);
 let myName = '', token = '', wantChannel = null, replaced = false;
 let sendStream = null, micGain = null, micSrc = null;
@@ -142,8 +157,7 @@ function connect() {
     else if (m.type === 'history') { $('msgs').innerHTML = ''; m.messages.forEach(addMsg); }
     else if (m.type === 'chat') addMsg(m.msg);
     else if (m.type === 'authed') {
-      myName = m.name; myRole = m.role;
-      $('me').textContent = myName + (myRole === 'admin' ? ' ★' : myRole === 'mod' ? ' ◆' : '');
+      myName = m.name; $('me').textContent = myName;
       $('auth').style.display = 'none'; render();
       if (wantChannel) { const c = wantChannel; wantChannel = null; join(c); }
     }
@@ -158,7 +172,13 @@ function connect() {
       const to = m.channel;
       join(to).then(() => { $('status').innerHTML = '#' + (chNames[to] || to) + '<small>' + (m.afk ? m.afk + ' dakika hareketsiz kaldığın için AFK kanalına taşındın. Mikrofonun kapalı; geri dönmek için hareket et.' : m.removed ? 'Bulunduğun kanal silindi, bu kanala taşındın.' : m.back ? 'Geri döndün, önceki kanalına taşındın.' : 'Yönetici seni bu kanala taşıdı.') + '</small>'; });
     }
-    else if (m.type === 'role') { myRole = m.role; render(); }
+    else if (m.type === 'me') {
+      myPerms = new Set(m.perms); myTop = m.top; myRole = myPerms.has('admin') ? 'admin' : 'user';
+      $('me').textContent = myName + (myRole === 'admin' ? ' ★' : '');
+      $('rmbtn').style.display = can('roles') ? '' : 'none';
+      render(); renderMembers();
+    }
+    else if (m.type === 'roles') { rolesList = m.roles; if ($('rm').style.display === 'grid') renderRoleMgr(); }
     else if (m.type === 'notice') { $('status').innerHTML = m.text; }
     else if (m.type === 'kicked') { leave(); $('status').innerHTML = 'Yönetici seni kanaldan çıkardı.'; }
     else if (m.type === 'force-mute') setMute(m.on, m.on);
@@ -288,12 +308,13 @@ function addMsg(g) {
   const d = document.createElement('div'); d.className = 'msg';
   const who = document.createElement('b');
   who.textContent = (g.tag ? '[' + g.tag + '] ' : '') + g.name + (g.role === 'admin' ? ' ★' : g.role === 'mod' ? ' ◆' : '') + ': ';
+  if (g.color) who.style.color = g.color;
   const t = document.createElement('span'); t.textContent = g.text;
   const tm = document.createElement('time');
   tm.textContent = new Date(g.time).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
   if (g.id) d.dataset.id = g.id;
   d.append(who, t, tm);
-  if (myRole === 'admin' && g.id) {
+  if (can('delmsg') && g.id) {
     const x = document.createElement('button'); x.className = 'act'; x.textContent = 'Sil'; x.style.marginLeft = '8px';
     x.onclick = () => ws.send(JSON.stringify({ type: 'delmsg', id: g.id }));
     d.appendChild(x);
@@ -324,7 +345,7 @@ function render() {
     const head = document.createElement('div'); head.className = 'chhead';
     const b = document.createElement('button'); b.textContent = '🔊 ' + (chNames[ch] || ch); b.onclick = () => join(ch);
     head.appendChild(b);
-    if (myRole === 'admin') {
+    if (can('channels')) {
       const ed = document.createElement('button'); ed.className = 'act'; ed.textContent = '✎'; ed.title = 'Kanal adını değiştir';
       ed.onclick = () => {
         const n = prompt('Yeni kanal adı (en fazla 20 karakter):', chNames[ch] || ch);
@@ -340,7 +361,7 @@ function render() {
     d.appendChild(head);
     for (const u of list) {
       const r = document.createElement('div'); r.className = 'm'; r.dataset.id = u.id;
-      if (myRole === 'admin' && u.id !== myId && u.role !== 'admin') {
+      if (can('move') && u.id !== myId && myTop > u.top) {
         r.draggable = true;
         r.ondragstart = e => { dragId = u.id; e.dataTransfer.setData('text/plain', String(u.id)); e.dataTransfer.effectAllowed = 'move'; };
         r.ondragend = () => { dragId = null; document.querySelectorAll('.over').forEach(x => x.classList.remove('over')); };
@@ -348,19 +369,20 @@ function render() {
       const a = document.createElement('span'); a.className = 'av'; a.textContent = u.name[0].toUpperCase();
       const n = document.createElement('span'); n.textContent = u.name + (u.id === myId ? ' (sen)' : '');
       n.textContent += u.role === 'admin' ? ' ★' : u.role === 'mod' ? ' ◆' : '';
+      if (u.color) n.style.color = u.color;
       n.textContent += (u.muted ? ' 🔇' : '') + (u.deaf ? ' 🙉' : '');
       if (u.tag) { const tg = document.createElement('span'); tg.className = 'tag'; tg.textContent = '[' + u.tag + ']'; r.append(a, tg, n); } else r.append(a, n);
       const rk = { user: 0, mod: 1, admin: 2 };
-      if (u.id !== myId && ch === current && rk[myRole] >= 1 && rk[myRole] > rk[u.role]) {
+      if (u.id !== myId && ch === current && myTop > u.top && (can('mute') || can('kick'))) {
         const act = (txt, action) => {
           const x = document.createElement('button'); x.textContent = txt; x.className = 'act';
           x.onclick = () => ws.send(JSON.stringify({ type: 'mod', action, target: u.id }));
           r.appendChild(x);
         };
-        act('Sustur', 'mute'); act('Aç', 'unmute'); act('At', 'kick');
-        if (myRole === 'admin') act(u.role === 'mod' ? 'Modu al' : 'Mod yap', u.role === 'mod' ? 'demote' : 'promote');
+        if (can('mute')) { act('Sustur', 'mute'); act('Aç', 'unmute'); }
+        if (can('kick')) act('At', 'kick');
       }
-      if (myRole === 'admin' && ch === current) {
+      if (can('tag') && ch === current && (u.id === myId || myTop > u.top)) {
         const x = document.createElement('button'); x.textContent = 'Etiket'; x.className = 'act';
         x.onclick = () => {
           const t = prompt('Etiket yaz (en fazla 12 karakter, silmek için boş bırak):', u.tag || '');
@@ -368,7 +390,7 @@ function render() {
         };
         r.appendChild(x);
       }
-      if (myRole === 'admin' && u.id !== myId && u.role !== 'admin') {
+      if (can('move') && u.id !== myId && myTop > u.top) {
         const mv = document.createElement('button'); mv.className = 'act'; mv.textContent = 'Taşı'; mv.title = 'Başka kanala taşı (sürükleyip de bırakabilirsin)';
         mv.onclick = () => {
           const ids = Object.keys(roster);
@@ -392,7 +414,7 @@ function render() {
     }
     box.appendChild(d);
   }
-  if (myRole === 'admin') {
+  if (can('channels')) {
     const add = document.createElement('button'); add.className = 'act'; add.textContent = '+ Kanal ekle'; add.style.margin = '8px';
     add.onclick = () => { const n = prompt('Yeni kanal adı (en fazla 20 karakter):'); if (n && n.trim()) ws.send(JSON.stringify({ type: 'chcreate', name: n })); };
     box.appendChild(add);
@@ -461,8 +483,7 @@ addEventListener('keyup', e => { if (e.code === pttKey && pttDown) { pttDown = f
 addEventListener('blur', () => { if (pttDown) { pttDown = false; applyMic(); } });
 function renderMembers() {
   const box = $('mem'); box.innerHTML = '';
-  const rk = { admin: 2, mod: 1, user: 0 };
-  const sorted = [...members].sort((a, b) => rk[b.role] - rk[a.role] || a.name.localeCompare(b.name, 'tr'));
+  const sorted = [...members].sort((a, b) => b.top - a.top || a.name.localeCompare(b.name, 'tr'));
   const sec = (title, list, on) => {
     if (!list.length) return;
     const h = document.createElement('div'); h.className = 'mh'; h.textContent = title + ' — ' + list.length; box.appendChild(h);
@@ -472,17 +493,22 @@ function renderMembers() {
       const wrap = document.createElement('span'); wrap.className = 'mw';
       const nm = document.createElement('span');
       nm.textContent = (u.tag ? '[' + u.tag + '] ' : '') + u.name + (u.role === 'admin' ? ' ★' : u.role === 'mod' ? ' ◆' : '');
+      if (u.color) nm.style.color = u.color;
       wrap.appendChild(nm);
       if (on && u.channel) { const c = document.createElement('small'); c.textContent = '🔊 ' + (chNames[u.channel] || u.channel); wrap.appendChild(c); }
       const dot = document.createElement('i'); dot.className = 'dot' + (on ? ' on' : '');
       row.append(av, wrap);
-      if (myRole === 'admin' && u.role !== 'admin' && u.name !== myName) {
+      if (myTop > u.top && u.name !== myName) {
         const mk = (txt, title, fn) => { const x = document.createElement('button'); x.className = 'act'; x.textContent = txt; x.title = title; x.onclick = fn; row.appendChild(x); };
-        if (u.banned) mk('✅', 'Yasağı kaldır', () => ws.send(JSON.stringify({ type: 'unban', uid: u.uid })));
+        if (u.banned) can('ban') && mk('✅', 'Yasağı kaldır', () => ws.send(JSON.stringify({ type: 'unban', uid: u.uid })));
         else {
-          mk('🔑', 'Şifreyi sıfırla', () => { if (confirm(u.name + ' için yeni geçici şifre oluşturulsun mu?')) ws.send(JSON.stringify({ type: 'resetpw', uid: u.uid })); });
-          mk('⛔', 'Yasakla', () => { if (confirm(u.name + ' yasaklansın mı? Hesabına girişi engellenir.')) ws.send(JSON.stringify({ type: 'ban', uid: u.uid })); });
+          can('resetpw') && mk('🔑', 'Şifreyi sıfırla', () => { if (confirm(u.name + ' için yeni geçici şifre oluşturulsun mu?')) ws.send(JSON.stringify({ type: 'resetpw', uid: u.uid })); });
+          can('ban') && mk('⛔', 'Yasakla', () => { if (confirm(u.name + ' yasaklansın mı? Hesabına girişi engellenir.')) ws.send(JSON.stringify({ type: 'ban', uid: u.uid })); });
         }
+      }
+      if (can('roles') && (u.name === myName || myTop > u.top)) {
+        const x = document.createElement('button'); x.className = 'act'; x.textContent = '🎭'; x.title = 'Rolleri düzenle';
+        x.onclick = () => openAssign(u); row.appendChild(x);
       }
       row.appendChild(dot); box.appendChild(row);
     }
@@ -491,6 +517,57 @@ function renderMembers() {
   sec('Çevrim dışı', sorted.filter(u => !u.online && !u.banned), false);
   sec('Yasaklı', sorted.filter(u => u.banned), false);
 }
+const PERM_LABELS = { admin: 'Yönetici (tüm yetkiler)', kick: 'Kanaldan atma', mute: 'Susturma', move: 'Kişi taşıma', delmsg: 'Mesaj silme', ban: 'Yasaklama', resetpw: 'Şifre sıfırlama', tag: 'Etiket verme', channels: 'Kanal yönetimi', roles: 'Rol yönetimi' };
+function renderRoleMgr() {
+  const box = $('rmbox'); box.innerHTML = '';
+  const card = r => {
+    const ro = !!r && r.pos >= myTop;
+    const d = document.createElement('div'); d.className = 'rcard';
+    const nm = document.createElement('input'); nm.type = 'text'; nm.maxLength = 20; nm.placeholder = 'Rol adı'; nm.value = r ? r.name : ''; nm.disabled = ro; nm.style.flex = '1';
+    const col = document.createElement('input'); col.type = 'color'; col.value = (r && r.color) || '#99aab5'; col.disabled = ro;
+    const top = document.createElement('div'); top.style.cssText = 'display:flex;gap:8px'; top.append(nm, col);
+    const pw = document.createElement('div'); pw.className = 'perms';
+    for (const p of Object.keys(PERM_LABELS)) {
+      const l = document.createElement('label'), cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.value = p; cb.checked = !!r && r.perms.includes(p); cb.disabled = ro || !myPerms.has(p);
+      l.append(cb, document.createTextNode(PERM_LABELS[p])); pw.appendChild(l);
+    }
+    d.append(top, pw);
+    const bar = document.createElement('div'); bar.className = 'row';
+    const btn = (t, fn) => { const b = document.createElement('button'); b.textContent = t; b.onclick = fn; bar.appendChild(b); };
+    if (!ro) btn(r ? 'Kaydet' : 'Rol oluştur', () => ws.send(JSON.stringify({ type: 'rolesave', id: r ? r.id : null, name: nm.value, color: col.value, perms: [...pw.querySelectorAll('input:checked')].map(c => c.value) })));
+    if (r && !ro) {
+      btn('↑', () => ws.send(JSON.stringify({ type: 'rolemove', id: r.id, dir: 1 })));
+      btn('↓', () => ws.send(JSON.stringify({ type: 'rolemove', id: r.id, dir: -1 })));
+      btn('Sil', () => { if (confirm('"' + r.name + '" rolü silinsin mi?')) ws.send(JSON.stringify({ type: 'roledel', id: r.id })); });
+    }
+    if (ro) { const n = document.createElement('small'); n.textContent = 'Bu rol seninkine eşit veya daha yüksek; düzenleyemezsin.'; n.style.color = 'var(--mute)'; d.appendChild(n); }
+    else d.appendChild(bar);
+    return d;
+  };
+  rolesList.forEach(r => box.appendChild(card(r)));
+  const h = document.createElement('div'); h.textContent = 'Yeni rol'; h.style.fontWeight = '600';
+  box.append(h, card(null));
+}
+$('rmbtn').onclick = () => { renderRoleMgr(); $('rm').style.display = 'grid'; };
+$('rmclose').onclick = () => { $('rm').style.display = 'none'; };
+let assignUid = null;
+function openAssign(u) {
+  assignUid = u.uid; $('astitle').textContent = u.name + ' — roller';
+  const box = $('asbox'); box.innerHTML = '';
+  for (const r of rolesList) {
+    const lab = document.createElement('label'), cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.value = r.id; cb.checked = (u.roleIds || []).includes(r.id); cb.disabled = r.pos >= myTop;
+    const sp = document.createElement('span'); sp.textContent = r.name; if (r.color) sp.style.color = r.color;
+    lab.append(cb, sp); box.appendChild(lab);
+  }
+  $('as').style.display = 'grid';
+}
+$('asok').onclick = () => {
+  const ids = [...$('asbox').querySelectorAll('input:checked')].map(c => Number(c.value));
+  ws.send(JSON.stringify({ type: 'setroles', uid: assignUid, roles: ids })); $('as').style.display = 'none';
+};
+$('ascancel').onclick = () => { $('as').style.display = 'none'; };
 $('pwbtn').onclick = () => { $('po').value = ''; $('pn').value = ''; $('perr').textContent = ''; $('pwm').style.display = 'grid'; };
 $('pcancel').onclick = () => { $('pwm').style.display = 'none'; };
 $('pok').onclick = async () => {
