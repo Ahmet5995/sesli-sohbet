@@ -15,9 +15,12 @@ h1 img{width:44px;height:44px;display:block}
 .big{width:81px;height:81px;display:block;margin:0 auto 18px}
 #channels{flex:1;overflow:auto;padding:0 8px}
 .ch{margin-bottom:6px}
-.ch>button{width:100%;text-align:left;background:none;border:0;color:var(--mute);padding:8px;border-radius:8px;font:inherit;cursor:pointer}
-.ch>button:hover{background:var(--card);color:var(--text)}
-.ch.on>button{color:var(--acc);font-weight:600}
+.chhead{display:flex;align-items:center;gap:4px}
+.ch.over{outline:2px dashed var(--acc);border-radius:8px}
+.m[draggable=true]{cursor:grab}
+.ch .chhead>button:first-child{width:100%;text-align:left;background:none;border:0;color:var(--mute);padding:8px;border-radius:8px;font:inherit;cursor:pointer}
+.ch .chhead>button:first-child:hover{background:var(--card);color:var(--text)}
+.ch.on .chhead>button:first-child{color:var(--acc);font-weight:600}
 .m{display:flex;align-items:center;gap:8px;padding:4px 8px 4px 20px;color:var(--text)}
 .av{width:26px;height:26px;border-radius:50%;background:var(--card);display:grid;place-items:center;font-size:12px;font-weight:600;outline:2px solid transparent;transition:outline-color .1s}
 .m.speak .av{outline-color:var(--acc)}
@@ -28,6 +31,15 @@ h1 img{width:44px;height:44px;display:block}
 #auth input{background:var(--card);border:1px solid transparent;color:var(--text);padding:10px;border-radius:8px;font:inherit}
 #auth .row button{padding:10px}
 #aerr{color:var(--bad);min-height:1.4em;font-size:14px;text-align:center}
+.volrow{flex-basis:100%;display:flex;align-items:center;gap:6px;padding-left:34px}
+.volrow input{flex:1;min-width:0;accent-color:var(--acc)}
+.volrow span{font-size:11px;color:var(--mute);width:34px}
+.panel details{font-size:13px;color:var(--mute)}
+.panel summary{cursor:pointer;padding:2px 0}
+.set{display:flex;flex-direction:column;gap:8px;padding-top:8px;color:var(--text)}
+.set label{display:flex;align-items:center;gap:8px}
+.panel input[type=range]{padding:0;width:100%;accent-color:var(--acc);background:none}
+.panel input[type=checkbox]{width:auto;padding:0;accent-color:var(--acc)}
 .panel{padding:12px;background:#0a0a0a;display:flex;flex-direction:column;gap:8px}
 .panel input{background:var(--card);border:1px solid transparent;color:var(--text);padding:8px;border-radius:8px;font:inherit}
 .row{display:flex;gap:6px}
@@ -50,6 +62,16 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
 .send button{padding:10px 16px;border:0;border-radius:8px;background:var(--acc);color:#111;font:inherit;font-weight:600;cursor:pointer}
 #status{font-size:20px;max-width:30ch}
 #status small{display:block;margin-top:8px;font-size:14px;color:var(--mute)}
+#mem{width:220px;background:var(--side);overflow:auto;flex-shrink:0;border-left:1px solid #2a2118;padding-bottom:16px}
+.mh{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);padding:14px 12px 6px}
+.mr{display:flex;align-items:center;gap:8px;padding:4px 12px}
+.mr.off{opacity:.45}
+.mw{display:flex;flex-direction:column;min-width:0}
+.mw span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mw small{color:var(--mute);font-size:11px}
+.dot{width:9px;height:9px;border-radius:50%;background:#555;margin-left:auto;flex-shrink:0}
+.dot.on{background:#3ecf6e}
+@media(max-width:900px){#mem{display:none}}
 @media(max-width:640px){body{flex-direction:column-reverse}aside{width:100%;height:60%}}
 </style>
 </head>
@@ -60,6 +82,12 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
   <div class="panel">
     <div id="me" style="font-weight:600"></div>
     <button id="logout" class="act" style="padding:6px">Çıkış yap</button>
+    <details><summary>Ses ayarları</summary><div class="set">
+      <label><input type="checkbox" id="pttOn"> Bas-konuş</label>
+      <button id="pttKey" class="act" style="padding:6px"></button>
+      <div>Mikrofon seviyesi: <span id="micv">100%</span></div>
+      <input type="range" id="mic" min="0" max="200" step="5" value="100">
+    </div></details>
     <div class="row">
       <button id="mute">Mikrofonu kapat</button>
       <button id="deaf">Sağırlaştır</button>
@@ -69,6 +97,7 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
 </aside>
 <main><div id="top"><img class="big" src="data:image/png;base64,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" alt="20VER logosu"><div id="status">Bir ses kanalına tıklayarak katıl.<small>Mikrofon izni istenecek.</small></div></div>
 <div id="chat"><div id="msgs"></div><div class="send"><input id="msg" placeholder="Mesaj yaz…" maxlength="300" autocomplete="off"><button id="sendbtn">Gönder</button></div></div></main>
+<div id="mem"></div>
 
 <div id="auth"><div class="box">
   <h2>20VER</h2>
@@ -86,13 +115,19 @@ const peers = new Map(); // id -> { pc, audio }
 let muted = false, deafened = false, forced = false, myRole = 'user';
 const $ = id => document.getElementById(id);
 let myName = '', token = '', wantChannel = null, replaced = false;
+let sendStream = null, micGain = null, micSrc = null;
+let prefs = {}, vols = {};
+let chNames = {}, dragId = null, members = [];
+try { prefs = JSON.parse(localStorage.getItem('prefs') || '{}'); vols = JSON.parse(localStorage.getItem('vols') || '{}'); } catch {}
+let ptt = !!prefs.ptt, pttKey = prefs.key || 'KeyV', pttDown = false, pttSetting = false;
+let micVol = typeof prefs.mic === 'number' ? prefs.mic : 1;
 try { token = localStorage.getItem('tok') || ''; } catch {}
 
 function connect() {
   ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
   ws.onmessage = async e => {
     const m = JSON.parse(e.data);
-    if (m.type === 'hello') { myId = m.id; roster = m.roster; render(); if (token) ws.send(JSON.stringify({ type: 'auth', token })); else showAuth(); }
+    if (m.type === 'hello') { myId = m.id; roster = m.roster; chNames = m.names || {}; render(); if (token) ws.send(JSON.stringify({ type: 'auth', token })); else showAuth(); }
     else if (m.type === 'roster') { notify(m.roster); roster = m.roster; render(); }
     else if (m.type === 'joined') { for (const id of m.peers) await callPeer(id); }
     else if (m.type === 'peer-left') closePeer(m.id);
@@ -106,6 +141,12 @@ function connect() {
     }
     else if (m.type === 'auth-fail') { token = ''; try { localStorage.removeItem('tok'); } catch {} showAuth('Oturum süresi doldu, tekrar giriş yap.'); }
     else if (m.type === 'replaced') replaced = true;
+    else if (m.type === 'channels') { chNames = m.names; render(); renderMembers(); }
+    else if (m.type === 'members') { members = m.list; renderMembers(); }
+    else if (m.type === 'moved') {
+      const to = m.channel;
+      join(to).then(() => { $('status').innerHTML = '#' + (chNames[to] || to) + '<small>Yönetici seni bu kanala taşıdı.</small>'; });
+    }
     else if (m.type === 'role') { myRole = m.role; render(); }
     else if (m.type === 'notice') { $('status').innerHTML = m.text; }
     else if (m.type === 'kicked') { leave(); $('status').innerHTML = 'Yönetici seni kanaldan çıkardı.'; }
@@ -124,9 +165,16 @@ const sig = (to, data) => ws.send(JSON.stringify({ type: 'signal', to, data }));
 function makePeer(id) {
   const pc = new RTCPeerConnection(ICE);
   const audio = new Audio(); audio.autoplay = true; audio.muted = deafened;
-  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  sendStream.getTracks().forEach(t => pc.addTrack(t, sendStream));
   pc.onicecandidate = e => e.candidate && sig(id, { candidate: e.candidate });
-  pc.ontrack = e => { audio.srcObject = e.streams[0]; watch(e.streams[0], id); };
+  pc.ontrack = e => {
+    const st = e.streams[0];
+    audio.srcObject = st; audio.muted = true; // ses WebAudio üzerinden çalınıyor (kişi başı seviye için)
+    const src = ac.createMediaStreamSource(st), g = ac.createGain();
+    src.connect(g); g.connect(ac.destination);
+    const p = peers.get(id); if (p) { p.gain = g; applyVol(id); }
+    watch(st, id);
+  };
   peers.set(id, { pc, audio });
   return pc;
 }
@@ -136,7 +184,7 @@ async function callPeer(id) {
   sig(id, { sdp: pc.localDescription });
 }
 async function onSignal(from, d) {
-  if (!localStream) return;
+  if (!sendStream) return;
   let p = peers.get(from);
   if (d.sdp) {
     if (d.sdp.type === 'offer') {
@@ -149,7 +197,7 @@ async function onSignal(from, d) {
 }
 function closePeer(id) {
   const p = peers.get(id); if (!p) return;
-  p.pc.close(); p.audio.srcObject = null; peers.delete(id);
+  p.pc.close(); p.audio.srcObject = null; try { p.gain && p.gain.disconnect(); } catch {} peers.delete(id);
 }
 function closeAll() { [...peers.keys()].forEach(closePeer); }
 
@@ -178,20 +226,22 @@ async function join(channel) {
   if (!localStream) {
     try { localStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
     catch { $('status').innerHTML = 'Mikrofona erişilemedi.<small>Tarayıcıdan mikrofon iznini aç. Adres https veya localhost olmalı.</small>'; return; }
-    localStream.getAudioTracks()[0].enabled = !muted;
+    applyMic();
   }
   await ac.resume();
+  if (!sendStream) buildMic();
   closeAll(); current = channel; prevIds = null;
   ws.send(JSON.stringify({ type: 'join', channel }));
   sendState();
   watch(localStream, 'me');
   $('leave').style.display = 'block';
-  $('status').innerHTML = `#${channel}<small>Bağlısın. Konuştuğunda adının yanındaki halka yanar.</small>`;
+  $('status').innerHTML = `#${chNames[channel] || channel}<small>Bağlısın. Konuştuğunda adının yanındaki halka yanar.</small>`;
 }
 function leave() {
   ws.send(JSON.stringify({ type: 'leave' }));
   closeAll(); current = null; prevIds = null;
   if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  try { micSrc && micSrc.disconnect(); micGain && micGain.disconnect(); } catch {} sendStream = null;
   $('leave').style.display = 'none';
   $('status').innerHTML = 'Bir ses kanalına tıklayarak katıl.';
 }
@@ -238,15 +288,38 @@ function sendMsg() {
 }
 function render() {
   $('top').classList.toggle('in', !!current);
+  peers.forEach((p, id) => applyVol(id));
   $('chat').style.display = current ? 'flex' : 'none';
   const box = $('channels'); box.innerHTML = '';
   for (const [ch, list] of Object.entries(roster)) {
     const d = document.createElement('div');
     d.className = 'ch' + (ch === current ? ' on' : '');
-    const b = document.createElement('button'); b.textContent = '🔊 ' + ch; b.onclick = () => join(ch);
-    d.appendChild(b);
+    d.ondragover = e => { if (dragId !== null) { e.preventDefault(); d.classList.add('over'); } };
+    d.ondragleave = e => { if (!d.contains(e.relatedTarget)) d.classList.remove('over'); };
+    d.ondrop = e => {
+      e.preventDefault(); d.classList.remove('over');
+      if (dragId !== null) ws.send(JSON.stringify({ type: 'mod', action: 'move', target: dragId, channel: ch }));
+      dragId = null;
+    };
+    const head = document.createElement('div'); head.className = 'chhead';
+    const b = document.createElement('button'); b.textContent = '🔊 ' + (chNames[ch] || ch); b.onclick = () => join(ch);
+    head.appendChild(b);
+    if (myRole === 'admin') {
+      const ed = document.createElement('button'); ed.className = 'act'; ed.textContent = '✎'; ed.title = 'Kanal adını değiştir';
+      ed.onclick = () => {
+        const n = prompt('Yeni kanal adı (en fazla 20 karakter):', chNames[ch] || ch);
+        if (n && n.trim()) ws.send(JSON.stringify({ type: 'rename', channel: ch, name: n }));
+      };
+      head.appendChild(ed);
+    }
+    d.appendChild(head);
     for (const u of list) {
       const r = document.createElement('div'); r.className = 'm'; r.dataset.id = u.id;
+      if (myRole === 'admin' && u.id !== myId && u.role !== 'admin') {
+        r.draggable = true;
+        r.ondragstart = e => { dragId = u.id; e.dataTransfer.setData('text/plain', String(u.id)); e.dataTransfer.effectAllowed = 'move'; };
+        r.ondragend = () => { dragId = null; document.querySelectorAll('.over').forEach(x => x.classList.remove('over')); };
+      }
       const a = document.createElement('span'); a.className = 'av'; a.textContent = u.name[0].toUpperCase();
       const n = document.createElement('span'); n.textContent = u.name + (u.id === myId ? ' (sen)' : '');
       n.textContent += u.role === 'admin' ? ' ★' : u.role === 'mod' ? ' ◆' : '';
@@ -270,6 +343,26 @@ function render() {
         };
         r.appendChild(x);
       }
+      if (myRole === 'admin' && u.id !== myId && u.role !== 'admin') {
+        const mv = document.createElement('button'); mv.className = 'act'; mv.textContent = 'Taşı'; mv.title = 'Başka kanala taşı (sürükleyip de bırakabilirsin)';
+        mv.onclick = () => {
+          const ids = Object.keys(roster);
+          const list = ids.map((id, i) => (i + 1) + ') ' + (chNames[id] || id)).join('\n');
+          const n = parseInt(prompt('Hangi kanala taşınsın? Numara yaz:\n' + list), 10);
+          if (ids[n - 1]) ws.send(JSON.stringify({ type: 'mod', action: 'move', target: u.id, channel: ids[n - 1] }));
+        };
+        r.appendChild(mv);
+      }
+      if (u.id !== myId && ch === current) {
+        const s0 = getVol(u.name);
+        const vr = document.createElement('div'); vr.className = 'volrow';
+        const mb = document.createElement('button'); mb.className = 'act'; mb.textContent = s0.m ? '🔇' : '🔊'; mb.title = 'Bu kişiyi sadece senin için sustur';
+        const sl = document.createElement('input'); sl.type = 'range'; sl.min = 0; sl.max = 200; sl.step = 5; sl.value = s0.v;
+        const pc = document.createElement('span'); pc.textContent = s0.v + '%';
+        mb.onclick = () => { setVol(u.name, { m: !getVol(u.name).m }); mb.textContent = getVol(u.name).m ? '🔇' : '🔊'; };
+        sl.oninput = () => { setVol(u.name, { v: Number(sl.value) }); pc.textContent = sl.value + '%'; };
+        vr.append(mb, sl, pc); r.appendChild(vr);
+      }
       d.appendChild(r);
     }
     box.appendChild(d);
@@ -278,7 +371,7 @@ function render() {
 
 function setMute(on, force) {
   muted = on; forced = !!force && on;
-  if (localStream) localStream.getAudioTracks()[0].enabled = !muted;
+  applyMic();
   const b = $('mute');
   b.textContent = forced ? 'Yönetici susturdu' : muted ? 'Mikrofonu aç' : 'Mikrofonu kapat';
   b.classList.toggle('off', muted);
@@ -287,7 +380,7 @@ function setMute(on, force) {
 $('mute').onclick = () => { if (!forced) setMute(!muted, false); };
 $('deaf').onclick = e => {
   deafened = !deafened;
-  peers.forEach(p => (p.audio.muted = deafened));
+  peers.forEach((p, id) => applyVol(id));
   e.target.textContent = deafened ? 'Sesi aç' : 'Sağırlaştır';
   e.target.classList.toggle('off', deafened);
   sendState();
@@ -295,6 +388,69 @@ $('deaf').onclick = e => {
 $('leave').onclick = leave;
 $('sendbtn').onclick = sendMsg;
 $('msg').onkeydown = e => { if (e.key === 'Enter') sendMsg(); };
+function buildMic() {
+  micSrc = ac.createMediaStreamSource(localStream);
+  micGain = ac.createGain(); micGain.gain.value = micVol;
+  const dest = ac.createMediaStreamDestination();
+  micSrc.connect(micGain); micGain.connect(dest);
+  sendStream = dest.stream;
+}
+function applyMic() {
+  if (localStream) localStream.getAudioTracks()[0].enabled = !muted && (!ptt || pttDown);
+}
+function getVol(name) { return vols[name] || { v: 100, m: false }; }
+function applyVol(id) {
+  const p = peers.get(id); if (!p || !p.gain) return;
+  let name = null;
+  for (const l of Object.values(roster)) for (const u of l) if (u.id === id) name = u.name;
+  const s = name ? getVol(name) : { v: 100, m: false };
+  p.gain.gain.value = deafened || s.m ? 0 : s.v / 100;
+}
+function setVol(name, patch) {
+  vols[name] = { ...getVol(name), ...patch };
+  try { localStorage.setItem('vols', JSON.stringify(vols)); } catch {}
+  peers.forEach((p, id) => applyVol(id));
+}
+function savePrefs() { try { localStorage.setItem('prefs', JSON.stringify({ ptt, key: pttKey, mic: micVol })); } catch {} }
+function keyLabel() { return 'Tuş: ' + (pttKey === 'Space' ? 'Boşluk' : pttKey.replace('Key', '').replace('Digit', '')) + ' (değiştir)'; }
+$('pttOn').checked = ptt;
+$('pttOn').onchange = e => { ptt = e.target.checked; pttDown = false; savePrefs(); applyMic(); };
+$('pttKey').textContent = keyLabel();
+$('pttKey').onclick = () => { pttSetting = true; $('pttKey').textContent = 'Bir tuşa bas…'; };
+$('mic').value = Math.round(micVol * 100); $('micv').textContent = Math.round(micVol * 100) + '%';
+$('mic').oninput = e => {
+  micVol = Number(e.target.value) / 100; $('micv').textContent = e.target.value + '%';
+  if (micGain) micGain.gain.value = micVol; savePrefs();
+};
+addEventListener('keydown', e => {
+  if (pttSetting) { e.preventDefault(); pttKey = e.code; pttSetting = false; savePrefs(); $('pttKey').textContent = keyLabel(); return; }
+  const tn = e.target.tagName;
+  if (ptt && e.code === pttKey && tn !== 'INPUT' && tn !== 'TEXTAREA') { e.preventDefault(); if (!e.repeat) { pttDown = true; applyMic(); } }
+});
+addEventListener('keyup', e => { if (e.code === pttKey && pttDown) { pttDown = false; applyMic(); } });
+addEventListener('blur', () => { if (pttDown) { pttDown = false; applyMic(); } });
+function renderMembers() {
+  const box = $('mem'); box.innerHTML = '';
+  const rk = { admin: 2, mod: 1, user: 0 };
+  const sorted = [...members].sort((a, b) => rk[b.role] - rk[a.role] || a.name.localeCompare(b.name, 'tr'));
+  const sec = (title, list, on) => {
+    if (!list.length) return;
+    const h = document.createElement('div'); h.className = 'mh'; h.textContent = title + ' — ' + list.length; box.appendChild(h);
+    for (const u of list) {
+      const row = document.createElement('div'); row.className = 'mr' + (on ? '' : ' off');
+      const av = document.createElement('span'); av.className = 'av'; av.textContent = u.name[0].toUpperCase();
+      const wrap = document.createElement('span'); wrap.className = 'mw';
+      const nm = document.createElement('span');
+      nm.textContent = (u.tag ? '[' + u.tag + '] ' : '') + u.name + (u.role === 'admin' ? ' ★' : u.role === 'mod' ? ' ◆' : '');
+      wrap.appendChild(nm);
+      if (on && u.channel) { const c = document.createElement('small'); c.textContent = '🔊 ' + (chNames[u.channel] || u.channel); wrap.appendChild(c); }
+      const dot = document.createElement('i'); dot.className = 'dot' + (on ? ' on' : '');
+      row.append(av, wrap, dot); box.appendChild(row);
+    }
+  };
+  sec('Çevrim içi', sorted.filter(u => u.online), true);
+  sec('Çevrim dışı', sorted.filter(u => !u.online), false);
+}
 function showAuth(msg) { $('auth').style.display = 'grid'; $('aerr').textContent = msg || ''; }
 async function doAuth(kind) {
   const body = { username: $('au').value.trim(), password: $('ap').value, key: $('ak').value };
