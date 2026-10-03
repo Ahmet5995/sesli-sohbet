@@ -15,12 +15,20 @@ if (!process.env.SESSION_SECRET) console.warn('UYARI: SESSION_SECRET ayarlı de�
 if (!process.env.DATABASE_URL) { console.error('HATA: DATABASE_URL ayarlı değil.'); process.exit(1); }
 const db = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false }, max: 5 });
 const RANK = { user: 0, mod: 1, admin: 2 };
+const users = new Map(); // kullanıcı id -> { name, role, tag } (tüm kayıtlı üyeler)
+const chNames = {}; // kanal kimliği -> görünen ad (veritabanında saklanır)
 
 async function initDb() {
   await db.query(`CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT NOT NULL, pass TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', tag TEXT NOT NULL DEFAULT '')`);
   await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower ON users (lower(username))`);
   await db.query(`CREATE TABLE IF NOT EXISTS messages (id SERIAL PRIMARY KEY, channel TEXT NOT NULL, name TEXT NOT NULL, role TEXT NOT NULL, tag TEXT NOT NULL, text TEXT NOT NULL, time BIGINT NOT NULL)`);
   await db.query(`CREATE INDEX IF NOT EXISTS messages_channel_id ON messages (channel, id)`);
+  await db.query(`CREATE TABLE IF NOT EXISTS channels (id TEXT PRIMARY KEY, name TEXT NOT NULL)`);
+  for (const c of CHANNELS) await db.query('INSERT INTO channels (id, name) VALUES ($1, $1) ON CONFLICT (id) DO NOTHING', [c]);
+  const cr = await db.query('SELECT id, name FROM channels');
+  cr.rows.forEach(x => (chNames[x.id] = x.name));
+  const ur = await db.query('SELECT id, username, role, tag FROM users');
+  ur.rows.forEach(x => users.set(x.id, { name: x.username, role: x.role, tag: x.tag }));
 }
 
 // --- Şifre ve oturum ---
@@ -66,6 +74,8 @@ async function handleAuth(req, res) {
       if (key && key !== ADMIN_KEY) return json(res, 400, { error: 'Yönetici şifresi yanlış.' });
       try {
         const r = await db.query('INSERT INTO users (username, pass, role) VALUES ($1, $2, $3) RETURNING id', [username, await hash(password), key ? 'admin' : 'user']);
+        users.set(r.rows[0].id, { name: username, role: key ? 'admin' : 'user', tag: '' });
+        scheduleMembers();
         return json(res, 200, { token: makeToken(r.rows[0].id) });
       } catch (e) {
         if (e.code === '23505') return json(res, 400, { error: 'Bu kullanıcı adı alınmış.' });
@@ -78,6 +88,7 @@ async function handleAuth(req, res) {
     if (key) {
       if (key !== ADMIN_KEY) return json(res, 400, { error: 'Yönetici şifresi yanlış.' });
       await db.query("UPDATE users SET role = 'admin' WHERE id = $1", [u.id]);
+      if (users.has(u.id)) users.get(u.id).role = 'admin';
     }
     return json(res, 200, { token: makeToken(u.id) });
   } catch (e) {
@@ -108,6 +119,22 @@ function roster() {
 function broadcastRoster() {
   const m = { type: 'roster', roster: roster() };
   for (const c of clients.values()) send(c.ws, m);
+  scheduleMembers();
+}
+// Üyeler listesi: tüm kayıtlı kullanıcılar + çevrim içi/dışı durumu
+function membersList() {
+  const online = new Map();
+  for (const c of clients.values()) if (c.uid) online.set(c.uid, c.channel);
+  return [...users].map(([uid, u]) => ({ name: u.name, role: u.role, tag: u.tag, online: online.has(uid), channel: online.get(uid) || null }));
+}
+let memTimer = null;
+function scheduleMembers() {
+  if (memTimer) return;
+  memTimer = setTimeout(() => {
+    memTimer = null;
+    const m = { type: 'members', list: membersList() };
+    for (const c of clients.values()) if (c.uid) send(c.ws, m);
+  }, 300);
 }
 function leave(id) {
   const me = clients.get(id);
@@ -127,7 +154,10 @@ async function handle(id, me, m) {
       if (oid !== id && o.uid === u.id) { send(o.ws, { type: 'replaced' }); o.uid = null; o.channel = null; o.ws.close(); }
     }
     Object.assign(me, { uid: u.id, name: u.username, role: u.role, tag: u.tag });
-    return send(me.ws, { type: 'authed', name: me.name, role: me.role, tag: me.tag });
+    users.set(u.id, { name: u.username, role: u.role, tag: u.tag });
+    send(me.ws, { type: 'authed', name: me.name, role: me.role, tag: me.tag });
+    send(me.ws, { type: 'members', list: membersList() });
+    return scheduleMembers();
   }
   if (!me.uid) return;
 
@@ -159,6 +189,13 @@ async function handle(id, me, m) {
     const msg = { name: me.name, role: me.role, tag: me.tag, text, time: now };
     for (const c of clients.values()) if (c.channel === me.channel) send(c.ws, { type: 'chat', msg });
     db.query('INSERT INTO messages (channel, name, role, tag, text, time) VALUES ($1, $2, $3, $4, $5, $6)', [me.channel, msg.name, msg.role, msg.tag, text, now]).catch(console.error);
+  } else if (m.type === 'rename') {
+    if (me.role !== 'admin' || !CHANNELS.includes(m.channel)) return;
+    const name = String(m.name || '').replace(/[<>]/g, '').trim().slice(0, 20);
+    if (!name) return;
+    chNames[m.channel] = name;
+    await db.query('UPDATE channels SET name = $1 WHERE id = $2', [name, m.channel]);
+    for (const c of clients.values()) send(c.ws, { type: 'channels', names: chNames });
   } else if (m.type === 'mod') {
     const t = clients.get(m.target);
     if (!t || !t.uid) return;
@@ -166,14 +203,20 @@ async function handle(id, me, m) {
       if (me.role !== 'admin') return;
       t.tag = String(m.tag || '').replace(/[<>]/g, '').trim().slice(0, 12);
       await db.query('UPDATE users SET tag = $1 WHERE id = $2', [t.tag, t.uid]);
+      if (users.has(t.uid)) users.get(t.uid).tag = t.tag;
       return broadcastRoster();
     }
     if (t === me) return;
+    if (m.action === 'move') {
+      if (me.role !== 'admin' || t.role === 'admin' || !t.channel || !CHANNELS.includes(m.channel) || t.channel === m.channel) return;
+      return send(t.ws, { type: 'moved', channel: m.channel });
+    }
     const mine = RANK[me.role];
     if (m.action === 'promote' || m.action === 'demote') {
       if (me.role !== 'admin' || t.role === 'admin') return;
       t.role = m.action === 'promote' ? 'mod' : 'user';
       await db.query('UPDATE users SET role = $1 WHERE id = $2', [t.role, t.uid]);
+      if (users.has(t.uid)) users.get(t.uid).role = t.role;
       send(t.ws, { type: 'role', role: t.role });
       broadcastRoster();
     } else if (mine >= 1 && mine > RANK[t.role] && t.channel && t.channel === me.channel) {
@@ -190,7 +233,7 @@ const wss = new WebSocketServer({ server });
 wss.on('connection', ws => {
   const id = nextId++;
   clients.set(id, { ws, uid: null, name: '', channel: null, role: 'user', tag: '', muted: false, deaf: false });
-  send(ws, { type: 'hello', id, channels: CHANNELS, roster: roster() });
+  send(ws, { type: 'hello', id, channels: CHANNELS, names: chNames, roster: roster() });
   ws.on('message', async raw => {
     let m; try { m = JSON.parse(raw); } catch { return; }
     const me = clients.get(id);
