@@ -183,7 +183,7 @@ function connect() {
       $('rmbtn').style.display = can('roles') ? '' : 'none';
       render(); renderMembers();
     }
-    else if (m.type === 'roles') { rolesList = m.roles; if ($('rm').style.display === 'grid') renderRoleMgr(); }
+    else if (m.type === 'roles') { rolesList = m.roles; if ($('rm').style.display === 'grid') renderRoleMgr(); renderMembers(); }
     else if (m.type === 'notice') { $('status').innerHTML = m.text; }
     else if (m.type === 'kicked') { leave(); $('status').innerHTML = 'Yönetici seni kanaldan çıkardı.'; }
     else if (m.type === 'force-mute') setMute(m.on, m.on);
@@ -463,9 +463,9 @@ function renderMembers() {
   const box = $('mem'); box.innerHTML = '';
   if (myTop > 0) { const hint = document.createElement('div'); hint.className = 'mh'; hint.style.textTransform = 'none'; hint.style.letterSpacing = '0'; hint.textContent = 'İpucu: yönetmek için kişiye sağ tıkla'; box.appendChild(hint); }
   const sorted = [...members].sort((a, b) => b.top - a.top || a.name.localeCompare(b.name, 'tr'));
-  const sec = (title, list, on) => {
+  const sec = (title, list, on, color) => {
     if (!list.length) return;
-    const h = document.createElement('div'); h.className = 'mh'; h.textContent = title + ' — ' + list.length; box.appendChild(h);
+    const h = document.createElement('div'); h.className = 'mh'; h.textContent = title + ' — ' + list.length; if (color) h.style.color = color; box.appendChild(h);
     for (const u of list) {
       const row = document.createElement('div'); row.className = 'mr' + (on ? '' : ' off');
       const av = document.createElement('span'); av.className = 'av'; av.textContent = u.name[0].toUpperCase();
@@ -481,7 +481,14 @@ function renderMembers() {
       row.appendChild(dot); box.appendChild(row);
     }
   };
-  sec('Çevrim içi', sorted.filter(u => u.online && !u.banned), true);
+  // Çevrim içi kişiler en yüksek rollerine göre gruplanır (rolü olmayanlar "Üyeler" altında)
+  const groups = new Map(), none = [];
+  for (const u of sorted.filter(x => x.online && !x.banned)) {
+    const r = rolesList.find(x => (u.roleIds || []).includes(x.id));
+    if (r) { if (!groups.has(r.id)) groups.set(r.id, []); groups.get(r.id).push(u); } else none.push(u);
+  }
+  for (const r of rolesList) if (groups.has(r.id)) sec(r.name, groups.get(r.id), true, r.color);
+  sec('Üyeler', none, true);
   sec('Çevrim dışı', sorted.filter(u => !u.online && !u.banned), false);
   sec('Yasaklı', sorted.filter(u => u.banned), false);
 }
