@@ -25,12 +25,12 @@ h1 img{width:44px;height:44px;display:block}
 .av{width:26px;height:26px;border-radius:50%;background:var(--card);display:grid;place-items:center;font-size:12px;font-weight:600;outline:2px solid transparent;transition:outline-color .1s}
 .m.speak .av{outline-color:var(--acc)}
 .tag{color:var(--acc);font-weight:600;font-size:12px}
-#auth{position:fixed;inset:0;background:rgba(0,0,0,.94);display:none;place-items:center;z-index:10;padding:16px}
-#auth .box{width:100%;max-width:340px;display:flex;flex-direction:column;gap:10px}
-#auth h2{margin:0 0 6px;color:var(--acc);letter-spacing:.1em;text-align:center}
-#auth input{background:var(--card);border:1px solid transparent;color:var(--text);padding:10px;border-radius:8px;font:inherit}
-#auth .row button{padding:10px}
-#aerr{color:var(--bad);min-height:1.4em;font-size:14px;text-align:center}
+#auth,#pwm{position:fixed;inset:0;background:rgba(0,0,0,.94);display:none;place-items:center;z-index:10;padding:16px}
+#auth .box,#pwm .box{width:100%;max-width:340px;display:flex;flex-direction:column;gap:10px}
+#auth h2,#pwm h2{margin:0 0 6px;color:var(--acc);letter-spacing:.1em;text-align:center}
+#auth input,#pwm input{background:var(--card);border:1px solid transparent;color:var(--text);padding:10px;border-radius:8px;font:inherit}
+#auth .row button,#pwm .row button{padding:10px}
+#aerr,#perr{color:var(--bad);min-height:1.4em;font-size:14px;text-align:center}
 .volrow{flex-basis:100%;display:flex;align-items:center;gap:6px;padding-left:34px}
 .volrow input{flex:1;min-width:0;accent-color:var(--acc)}
 .volrow span{font-size:11px;color:var(--mute);width:34px}
@@ -66,7 +66,7 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
 .mh{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);padding:14px 12px 6px}
 .mr{display:flex;align-items:center;gap:8px;padding:4px 12px}
 .mr.off{opacity:.45}
-.mw{display:flex;flex-direction:column;min-width:0}
+.mw{display:flex;flex-direction:column;min-width:0;flex:1}
 .mw span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mw small{color:var(--mute);font-size:11px}
 .dot{width:9px;height:9px;border-radius:50%;background:#555;margin-left:auto;flex-shrink:0}
@@ -82,6 +82,7 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
   <div class="panel">
     <div id="me" style="font-weight:600"></div>
     <button id="logout" class="act" style="padding:6px">Çıkış yap</button>
+    <button id="pwbtn" class="act" style="padding:6px">Şifre değiştir</button>
     <details><summary>Ses ayarları</summary><div class="set">
       <label><input type="checkbox" id="pttOn"> Bas-konuş</label>
       <button id="pttKey" class="act" style="padding:6px"></button>
@@ -99,6 +100,13 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
 <div id="chat"><div id="msgs"></div><div class="send"><input id="msg" placeholder="Mesaj yaz…" maxlength="300" autocomplete="off"><button id="sendbtn">Gönder</button></div></div></main>
 <div id="mem"></div>
 
+<div id="pwm"><div class="box">
+  <h2>Şifre değiştir</h2>
+  <input id="po" type="password" placeholder="Mevcut şifre" autocomplete="current-password">
+  <input id="pn" type="password" placeholder="Yeni şifre (en az 6 karakter)" autocomplete="new-password">
+  <div class="row"><button id="pok">Kaydet</button><button id="pcancel">Vazgeç</button></div>
+  <div id="perr"></div>
+</div></div>
 <div id="auth"><div class="box">
   <h2>20VER</h2>
   <input id="au" placeholder="Kullanıcı adı" maxlength="16" autocomplete="username">
@@ -139,13 +147,16 @@ function connect() {
       $('auth').style.display = 'none'; render();
       if (wantChannel) { const c = wantChannel; wantChannel = null; join(c); }
     }
-    else if (m.type === 'auth-fail') { token = ''; try { localStorage.removeItem('tok'); } catch {} showAuth('Oturum süresi doldu, tekrar giriş yap.'); }
+    else if (m.type === 'auth-fail') { token = ''; try { localStorage.removeItem('tok'); } catch {} showAuth(m.reason || 'Oturum süresi doldu, tekrar giriş yap.'); }
     else if (m.type === 'replaced') replaced = true;
     else if (m.type === 'channels') { chNames = m.names; render(); renderMembers(); }
     else if (m.type === 'members') { members = m.list; renderMembers(); }
+    else if (m.type === 'msgdel') { const el = document.querySelector('#msgs [data-id="' + m.id + '"]'); if (el) el.remove(); }
+    else if (m.type === 'pwreset') alert(m.name + ' için yeni geçici şifre:\n\n' + m.password + '\n\nBunu kullanıcıya ilet. Girdikten sonra "Şifre değiştir" ile kendi şifresini belirleyebilir.');
+    else if (m.type === 'banned') { replaced = true; token = ''; try { localStorage.removeItem('tok'); } catch {} showAuth('Bu hesap yasaklandı.'); }
     else if (m.type === 'moved') {
       const to = m.channel;
-      join(to).then(() => { $('status').innerHTML = '#' + (chNames[to] || to) + '<small>Yönetici seni bu kanala taşıdı.</small>'; });
+      join(to).then(() => { $('status').innerHTML = '#' + (chNames[to] || to) + '<small>' + (m.afk ? m.afk + ' dakika hareketsiz kaldığın için AFK kanalına taşındın. Mikrofonun kapalı; geri dönmek için hareket et.' : m.removed ? 'Bulunduğun kanal silindi, bu kanala taşındın.' : m.back ? 'Geri döndün, önceki kanalına taşındın.' : 'Yönetici seni bu kanala taşıdı.') + '</small>'; });
     }
     else if (m.type === 'role') { myRole = m.role; render(); }
     else if (m.type === 'notice') { $('status').innerHTML = m.text; }
@@ -213,6 +224,7 @@ function watch(stream, id) {
     an.getByteTimeDomainData(buf);
     let s = 0; for (const v of buf) s += (v - 128) ** 2;
     const on = Math.sqrt(s / buf.length) > 15 && !(id === 'me' && muted);
+    if (on && id === 'me') markActive();
     const el = document.querySelector(`[data-id="${id === 'me' ? myId : id}"]`);
     if (el) el.classList.toggle('speak', on);
     requestAnimationFrame(tick);
@@ -231,11 +243,12 @@ async function join(channel) {
   await ac.resume();
   if (!sendStream) buildMic();
   closeAll(); current = channel; prevIds = null;
+  applyMic();
   ws.send(JSON.stringify({ type: 'join', channel }));
   sendState();
   watch(localStream, 'me');
   $('leave').style.display = 'block';
-  $('status').innerHTML = `#${chNames[channel] || channel}<small>Bağlısın. Konuştuğunda adının yanındaki halka yanar.</small>`;
+  $('status').innerHTML = `#${chNames[channel] || channel}<small>${channel === 'AFK' ? 'AFK kanalındasın, mikrofonun kapalı.' : 'Bağlısın. Konuştuğunda adının yanındaki halka yanar.'}</small>`;
 }
 function leave() {
   ws.send(JSON.stringify({ type: 'leave' }));
@@ -278,7 +291,14 @@ function addMsg(g) {
   const t = document.createElement('span'); t.textContent = g.text;
   const tm = document.createElement('time');
   tm.textContent = new Date(g.time).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-  d.append(who, t, tm); box.appendChild(d);
+  if (g.id) d.dataset.id = g.id;
+  d.append(who, t, tm);
+  if (myRole === 'admin' && g.id) {
+    const x = document.createElement('button'); x.className = 'act'; x.textContent = 'Sil'; x.style.marginLeft = '8px';
+    x.onclick = () => ws.send(JSON.stringify({ type: 'delmsg', id: g.id }));
+    d.appendChild(x);
+  }
+  box.appendChild(d);
   if (near) box.scrollTop = box.scrollHeight;
 }
 function sendMsg() {
@@ -311,6 +331,11 @@ function render() {
         if (n && n.trim()) ws.send(JSON.stringify({ type: 'rename', channel: ch, name: n }));
       };
       head.appendChild(ed);
+      if (ch !== 'AFK') {
+        const del = document.createElement('button'); del.className = 'act'; del.textContent = '🗑'; del.title = 'Kanalı sil';
+        del.onclick = () => { if (confirm('"' + (chNames[ch] || ch) + '" kanalı ve tüm mesajları silinsin mi?')) ws.send(JSON.stringify({ type: 'chdelete', channel: ch })); };
+        head.appendChild(del);
+      }
     }
     d.appendChild(head);
     for (const u of list) {
@@ -367,6 +392,11 @@ function render() {
     }
     box.appendChild(d);
   }
+  if (myRole === 'admin') {
+    const add = document.createElement('button'); add.className = 'act'; add.textContent = '+ Kanal ekle'; add.style.margin = '8px';
+    add.onclick = () => { const n = prompt('Yeni kanal adı (en fazla 20 karakter):'); if (n && n.trim()) ws.send(JSON.stringify({ type: 'chcreate', name: n })); };
+    box.appendChild(add);
+  }
 }
 
 function setMute(on, force) {
@@ -396,7 +426,7 @@ function buildMic() {
   sendStream = dest.stream;
 }
 function applyMic() {
-  if (localStream) localStream.getAudioTracks()[0].enabled = !muted && (!ptt || pttDown);
+  if (localStream) localStream.getAudioTracks()[0].enabled = !muted && current !== 'AFK' && (!ptt || pttDown);
 }
 function getVol(name) { return vols[name] || { v: 100, m: false }; }
 function applyVol(id) {
@@ -445,12 +475,39 @@ function renderMembers() {
       wrap.appendChild(nm);
       if (on && u.channel) { const c = document.createElement('small'); c.textContent = '🔊 ' + (chNames[u.channel] || u.channel); wrap.appendChild(c); }
       const dot = document.createElement('i'); dot.className = 'dot' + (on ? ' on' : '');
-      row.append(av, wrap, dot); box.appendChild(row);
+      row.append(av, wrap);
+      if (myRole === 'admin' && u.role !== 'admin' && u.name !== myName) {
+        const mk = (txt, title, fn) => { const x = document.createElement('button'); x.className = 'act'; x.textContent = txt; x.title = title; x.onclick = fn; row.appendChild(x); };
+        if (u.banned) mk('✅', 'Yasağı kaldır', () => ws.send(JSON.stringify({ type: 'unban', uid: u.uid })));
+        else {
+          mk('🔑', 'Şifreyi sıfırla', () => { if (confirm(u.name + ' için yeni geçici şifre oluşturulsun mu?')) ws.send(JSON.stringify({ type: 'resetpw', uid: u.uid })); });
+          mk('⛔', 'Yasakla', () => { if (confirm(u.name + ' yasaklansın mı? Hesabına girişi engellenir.')) ws.send(JSON.stringify({ type: 'ban', uid: u.uid })); });
+        }
+      }
+      row.appendChild(dot); box.appendChild(row);
     }
   };
-  sec('Çevrim içi', sorted.filter(u => u.online), true);
-  sec('Çevrim dışı', sorted.filter(u => !u.online), false);
+  sec('Çevrim içi', sorted.filter(u => u.online && !u.banned), true);
+  sec('Çevrim dışı', sorted.filter(u => !u.online && !u.banned), false);
+  sec('Yasaklı', sorted.filter(u => u.banned), false);
 }
+$('pwbtn').onclick = () => { $('po').value = ''; $('pn').value = ''; $('perr').textContent = ''; $('pwm').style.display = 'grid'; };
+$('pcancel').onclick = () => { $('pwm').style.display = 'none'; };
+$('pok').onclick = async () => {
+  try {
+    const r = await fetch('/api/password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, oldPassword: $('po').value, newPassword: $('pn').value }) });
+    const d = await r.json();
+    if (!r.ok) { $('perr').textContent = d.error || 'Bir hata oluştu.'; return; }
+    $('pwm').style.display = 'none'; alert('Şifren değiştirildi.');
+  } catch { $('perr').textContent = 'Sunucuya ulaşılamadı.'; }
+};
+let lastPing = 0;
+function markActive() {
+  const now = Date.now();
+  if (now - lastPing < 30000 || !current || !ws || ws.readyState !== 1) return;
+  lastPing = now; ws.send(JSON.stringify({ type: 'activity' }));
+}
+['mousemove', 'keydown', 'pointerdown', 'touchstart', 'wheel'].forEach(ev => addEventListener(ev, markActive, { passive: true }));
 function showAuth(msg) { $('auth').style.display = 'grid'; $('aerr').textContent = msg || ''; }
 async function doAuth(kind) {
   const body = { username: $('au').value.trim(), password: $('ap').value, key: $('ak').value };
