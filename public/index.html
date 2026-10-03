@@ -172,6 +172,7 @@ function connect() {
     else if (m.type === 'members') { members = m.list; renderMembers(); }
     else if (m.type === 'msgdel') { const el = document.querySelector('#msgs [data-id="' + m.id + '"]'); if (el) el.remove(); }
     else if (m.type === 'pwreset') alert(m.name + ' için yeni geçici şifre:\n\n' + m.password + '\n\nBunu kullanıcıya ilet. Girdikten sonra "Şifre değiştir" ile kendi şifresini belirleyebilir.');
+    else if (m.type === 'deleted') { replaced = true; token = ''; try { localStorage.removeItem('tok'); } catch {} showAuth('Hesabın silindi.'); }
     else if (m.type === 'banned') { replaced = true; token = ''; try { localStorage.removeItem('tok'); } catch {} showAuth('Bu hesap yasaklandı.'); }
     else if (m.type === 'moved') {
       const to = m.channel;
@@ -515,6 +516,11 @@ function userMenu(u) {
       if (u.banned) items.push(['✅ Yasağı kaldır', () => send({ type: 'unban', uid: u.uid })]);
       else items.push(['⛔ Yasakla', () => { if (confirm(u.name + ' yasaklansın mı? Hesabına girişi engellenir.')) send({ type: 'ban', uid: u.uid }); }, true]);
     }
+    if (can('delacct')) items.push(['🗑 Hesabı sil', () => {
+      const t = prompt('"' + u.name + '" hesabı KALICI olarak silinecek (hesap, roller ve mesajları). Geri alınamaz.\n\nOnaylamak için kullanıcı adını aynen yaz:');
+      if (t !== null && t.trim().toLowerCase() === u.name.toLowerCase()) send({ type: 'deluser', uid: u.uid });
+      else if (t !== null) alert('Kullanıcı adı eşleşmedi, hesap silinmedi.');
+    }, true]);
   }
   return items;
 }
@@ -542,7 +548,7 @@ addEventListener('click', hideMenu);
 addEventListener('scroll', hideMenu, true);
 addEventListener('keydown', e => { if (e.key === 'Escape') hideMenu(); });
 addEventListener('contextmenu', e => { if (!e.target.closest('.m, .mr')) hideMenu(); });
-const PERM_LABELS = { admin: 'Yönetici (tüm yetkiler)', kick: 'Kanaldan atma', mute: 'Susturma', move: 'Kişi taşıma', delmsg: 'Mesaj silme', ban: 'Yasaklama', resetpw: 'Şifre sıfırlama', tag: 'Etiket verme', channels: 'Kanal yönetimi', roles: 'Rol yönetimi' };
+const PERM_LABELS = { admin: 'Yönetici (tüm yetkiler)', kick: 'Kanaldan atma', mute: 'Susturma', move: 'Kişi taşıma', delmsg: 'Mesaj silme', ban: 'Yasaklama', resetpw: 'Şifre sıfırlama', tag: 'Etiket verme', channels: 'Kanal yönetimi', roles: 'Rol yönetimi', delacct: 'Hesap silme' };
 function renderRoleMgr() {
   const box = $('rmbox'); box.innerHTML = '';
   const card = r => {
