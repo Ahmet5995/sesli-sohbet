@@ -17,7 +17,7 @@ if (!process.env.SESSION_SECRET) console.warn('UYARI: SESSION_SECRET ayarlı de�
 if (!process.env.DATABASE_URL) { console.error('HATA: DATABASE_URL ayarlı değil.'); process.exit(1); }
 const db = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false }, max: 5 });
 
-const PERMS = ['admin', 'kick', 'mute', 'move', 'delmsg', 'ban', 'resetpw', 'tag', 'channels', 'roles'];
+const PERMS = ['admin', 'kick', 'mute', 'move', 'delmsg', 'ban', 'resetpw', 'tag', 'channels', 'roles', 'delacct'];
 const users = new Map(); // uid -> { name, tag, banned, roles: Set<rid> }
 const roles = new Map(); // rid -> { id, name, color, perms: [], pos }
 const chNames = {};
@@ -377,6 +377,17 @@ async function handle(id, me, m) {
         send(t.ws, { type: 'force-mute', on: m.action === 'mute' });
       }
     }
+  } else if (m.type === 'deluser') {
+    // Hesabı kalıcı olarak sil: hesap, rolleri ve yazdığı mesajlar gider
+    if (!can(me.uid, 'delacct')) return;
+    const uid = Number(m.uid), u = users.get(uid);
+    if (!u || uid === me.uid || topOf(me.uid) <= topOf(uid)) return;
+    for (const c of clients.values()) if (c.uid === uid) { send(c.ws, { type: 'deleted' }); c.uid = null; c.channel = null; c.ws.close(); }
+    await db.query('DELETE FROM user_roles WHERE uid = $1', [uid]);
+    await db.query('DELETE FROM messages WHERE lower(name) = lower($1)', [u.name]);
+    await db.query('DELETE FROM users WHERE id = $1', [uid]);
+    users.delete(uid);
+    broadcastRoster();
   } else if (m.type === 'taguid') {
     // Etiket: çevrim dışı kullanıcılara da verilebilir
     const uid = Number(m.uid), u = users.get(uid);
